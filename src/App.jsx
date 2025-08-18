@@ -96,11 +96,11 @@ const MONTH_ORDER = [
 
 const formatCurrency = (n) => {
   const val = Number(n) || 0;
-  return val.toLocaleString('es-CO', { 
-    style: 'currency', 
-    currency: 'COP',
+  return val.toLocaleString("es-CO", {
+    style: "currency",
+    currency: "COP",
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    maximumFractionDigits: 0,
   });
 };
 
@@ -158,13 +158,7 @@ export const FinanceProvider = ({ children }) => {
   useEffect(() => {
     if (!db || !userId) return;
 
-    const appId =
-      typeof window !== "undefined" && window.__app_id
-        ? window.__app_id
-        : APP_ID_FALLBACK;
-    const qRef = query(
-      collection(db, `artifacts/${appId}/users/${userId}/months`)
-    );
+    const qRef = query(collection(db, `users/${userId}/months`));
 
     const unsubscribe = onSnapshot(
       qRef,
@@ -231,11 +225,7 @@ export const FinanceProvider = ({ children }) => {
 
   // ---------------------- Persistencia ----------------------
   const path = (month) => {
-    const appId =
-      typeof window !== "undefined" && window.__app_id
-        ? window.__app_id
-        : APP_ID_FALLBACK;
-    return `artifacts/${appId}/users/${userId}/months/${month}`;
+    return `users/${userId}/months/${month}`;
   };
 
   const ensureMonthData = (month) => ({
