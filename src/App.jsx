@@ -36,7 +36,6 @@ import {
 // 1) CONFIGURACIÓN Y CONSTANTES
 // -----------------------------------------------------------------------------
 
-// ⚠️ Reemplaza estos valores con los de tu proyecto desde Firebase Console
 const firebaseConfig = {
   apiKey: "AIzaSyBwCtxbLpt8YQSUZTYttVafCxC8cqE4q9I",
   authDomain: "gestor-de-finanzas-6ae2b.firebaseapp.com",
@@ -962,8 +961,9 @@ const LoginView = () => {
 //    (Tu lógica original intacta)
 // -----------------------------------------------------------------------------
 
+//Sub-ítem Modal
 const ExpenseModal = ({ month, expense, isOpen, onClose }) => {
-  const { addSubItem } = useFinance();
+  const { addSubItem, updateSubItem, deleteSubItem } = useFinance();
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [description, setDescription] = useState("");
   const [value, setValue] = useState("");
@@ -1066,22 +1066,16 @@ const ExpenseModal = ({ month, expense, isOpen, onClose }) => {
         <div className="rounded-lg border border-gray-300 shadow-md">
           <ul className="space-y-0">
             {(expense.subItems || []).map((item) => (
-              <li
-                key={item.id}
-                className="flex justify-between items-center p-3 border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition-colors duration-200 cursor-pointer"
-              >
-                <button
-                  onClick={() => setSelectedSubItem(item)}
-                  className="flex-1 text-left text-gray-800"
-                >
-                  {item.description}
-                </button>
-                <div className="flex items-center space-x-4">
-                  <span className="font-bold text-red-600">
-                    {formatCurrency(item.value)}
-                  </span>
-                </div>
-              </li>
+              <div key={item.id} className="flex items-center justify-between">
+                <EditableItem
+                  type="expense"
+                  item={item}
+                  onSave={(id, desc, val) =>
+                    updateSubItem(month, expense.id, id, desc, val)
+                  }
+                  onDelete={(id) => deleteSubItem(month, expense.id, id)}
+                />
+              </div>
             ))}
           </ul>
         </div>
@@ -1294,7 +1288,7 @@ const MonthModal = ({ month, isOpen, onClose }) => {
 
         {/* Ahorro */}
         <div className="p-3 bg-gray-100 rounded-lg border border-gray-300 shadow-sm">
-          <h3 className="text;base font-bold text-blue-700 mb-2">Ahorro</h3>
+          <h3 className="text-base font-bold text-blue-700 mb-2">Ahorro</h3>
           <div className="flex flex-col md:flex-row items-center md:space-x-4">
             <div className="flex-1 w-full md:w-auto">
               <label className="text-sm font-semibold text-gray-600">
@@ -1398,6 +1392,7 @@ const MonthModal = ({ month, isOpen, onClose }) => {
 
         {/* Listas */}
         <div className="grid md:grid-cols-2 gap-4">
+          {/* Ingresos */}
           <div>
             <h3 className="text-base font-bold text-green-700 mb-2">
               Ingresos
@@ -1419,27 +1414,33 @@ const MonthModal = ({ month, isOpen, onClose }) => {
             </div>
           </div>
 
+          {/* Egresos */}
           <div>
             <h3 className="text-base font-bold text-red-700 mb-2">Egresos</h3>
             <div className="rounded-lg border border-gray-300 shadow-md">
               <ul className="space-y-0">
                 {(monthData.expenses || []).map((item) => (
-                  <li
+                  <div
                     key={item.id}
-                    className="flex justify-between items-center p-3 border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition-colors duration-200 cursor-pointer"
+                    className="flex items-center justify-between"
                   >
+                    <EditableItem
+                      type="expense"
+                      item={item}
+                      onSave={(id, desc, val, cat) =>
+                        updateTransaction(month, "expense", id, desc, val, cat)
+                      }
+                      onDelete={(id) =>
+                        deleteTransaction(month, "expense", id)
+                      }
+                    />
                     <button
                       onClick={() => setSelectedExpense(item)}
-                      className="flex-1 text-left text-gray-800"
+                      className="ml-2 text-blue-600 hover:text-blue-800 text-sm underline"
                     >
-                      {item.description}
+                      Ver detalle
                     </button>
-                    <div className="flex items-center space-x-4">
-                      <span className="font-bold text-red-600">
-                        {formatCurrency(item.value)}
-                      </span>
-                    </div>
-                  </li>
+                  </div>
                 ))}
               </ul>
             </div>
