@@ -50,7 +50,7 @@ const APP_ID_FALLBACK = "default-app-id";
 
 const FinanceContext = createContext(null);
 
-const CATEGORIES = [
+const CATEGORIES_DEFAULT = [
   "Vivienda",
   "Transporte",
   "Alimentación",
@@ -62,6 +62,7 @@ const CATEGORIES = [
   "Ahorro/Deuda",
   "Impuestos",
   "Otros",
+  "Nueva categoria",
 ];
 
 const PIE_CHART_COLORS = [
@@ -118,6 +119,18 @@ export const FinanceProvider = ({ children }) => {
 
   // Errores de autenticación que consumirá la UI de Login
   const [authError, setAuthError] = useState("");
+  const [categories, setCategories] = useState(() => {
+    const saved = localStorage.getItem("gestor_categories");
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e) { /* ignora */ }
+    }
+    return CATEGORIES_DEFAULT;
+  });
+
+  // Guardar categorías en localStorage cada vez que cambien
+  useEffect(() => {
+    localStorage.setItem("gestor_categories", JSON.stringify(categories));
+  }, [categories]);
 
   useEffect(() => {
     // Inicializa Firebase (app única)
@@ -576,6 +589,61 @@ export const FinanceProvider = ({ children }) => {
     await deleteDoc(oldRef);
   };
 
+  // ---------------------- CRUD Categorías ----------------------
+  const addCategory = (name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed || categories.includes(trimmed)) return;
+    const updated = [...categories, trimmed];
+    setCategories(updated);
+  };
+
+  const updateCategory = async (oldName, newName) => {
+    const trimmed = (newName || "").trim();
+    if (!trimmed || oldName === trimmed) return;
+    if (categories.includes(trimmed)) return; // ya existe
+    const updated = categories.map((c) => (c === oldName ? trimmed : c));
+    setCategories(updated);
+
+    // Actualizar gastos existentes en Firebase con el nuevo nombre de categoría
+    if (!db || !userId) return;
+    for (const month of Object.keys(data)) {
+      const monthData = ensureMonthData(month);
+      let changed = false;
+      for (const expense of monthData.expenses) {
+        if (expense.category === oldName) {
+          expense.category = trimmed;
+          changed = true;
+        }
+      }
+      if (changed) {
+        const monthDocRef = doc(db, path(month));
+        await setDoc(monthDocRef, monthData);
+      }
+    }
+  };
+
+  const deleteCategory = async (name) => {
+    const updated = categories.filter((c) => c !== name);
+    setCategories(updated);
+
+    // Limpiar categoría en gastos existentes en Firebase
+    if (!db || !userId) return;
+    for (const month of Object.keys(data)) {
+      const monthData = ensureMonthData(month);
+      let changed = false;
+      for (const expense of monthData.expenses) {
+        if (expense.category === name) {
+          expense.category = "";
+          changed = true;
+        }
+      }
+      if (changed) {
+        const monthDocRef = doc(db, path(month));
+        await setDoc(monthDocRef, monthData);
+      }
+    }
+  };
+
   // ---------------------- Auth (Email/Password) ----------------------
   const signInEmail = async (email, password) => {
     if (!auth) return;
@@ -645,6 +713,10 @@ export const FinanceProvider = ({ children }) => {
         renameMonth,
         isLoading,
         userId,
+        categories,
+        addCategory,
+        updateCategory,
+        deleteCategory,
 
         // Auth
         signInEmail,
@@ -697,6 +769,7 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 };
 
 const EditableItem = ({ type, item, onSave, onDelete }) => {
+  const { categories } = useFinance();
   const [isEditing, setIsEditing] = useState(false);
   const [description, setDescription] = useState(item.description);
   const [value, setValue] = useState(item.value);
@@ -784,7 +857,7 @@ const EditableItem = ({ type, item, onSave, onDelete }) => {
               className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
             >
               <option value="">Seleccionar Categoría</option>
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -815,7 +888,14 @@ const EditableItem = ({ type, item, onSave, onDelete }) => {
 
   return (
     <li className="flex justify-between items-center p-3 border-b border-gray-200 last:border-b-0 transition-colors hover:bg-gray-50">
-      <span className="flex-1 text-gray-800">{item.description}</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-gray-800">{item.description}</span>
+        {type === "expense" && item.category && (
+          <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+            {item.category}
+          </span>
+        )}
+      </div>
       <div className="flex items-center space-x-4">
         <span
           className={`font-bold ${
@@ -1202,6 +1282,7 @@ const MonthModal = ({ month, isOpen, onClose }) => {
     deleteTransaction,
     calculateTotals,
     updateSavings,
+    categories,
   } = useFinance();
   const [isAdding, setIsAdding] = useState(false);
   const [description, setDescription] = useState("");
@@ -1361,7 +1442,7 @@ const MonthModal = ({ month, isOpen, onClose }) => {
                     onChange={(e) => setCategory(e.target.value)}
                   >
                     <option value="">Seleccionar Categoría</option>
-                    {CATEGORIES.map((cat) => (
+                    {categories.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
@@ -1430,9 +1511,7 @@ const MonthModal = ({ month, isOpen, onClose }) => {
                       onSave={(id, desc, val, cat) =>
                         updateTransaction(month, "expense", id, desc, val, cat)
                       }
-                      onDelete={(id) =>
-                        deleteTransaction(month, "expense", id)
-                      }
+                      onDelete={(id) => deleteTransaction(month, "expense", id)}
                     />
                     <button
                       onClick={() => setSelectedExpense(item)}
@@ -1456,7 +1535,11 @@ const MonthModal = ({ month, isOpen, onClose }) => {
 // -----------------------------------------------------------------------------
 
 const Dashboard = () => {
-  const { data, isLoading, userId } = useFinance();
+  const { data, isLoading, userId, categories, addCategory, updateCategory, deleteCategory } = useFinance();
+  const [newCatName, setNewCatName] = useState("");
+  const [editingCat, setEditingCat] = useState(null); // { oldName, currentName } | null
+  const [catMessage, setCatMessage] = useState("");
+  const [catError, setCatError] = useState("");
 
   if (isLoading) {
     return (
@@ -1590,6 +1673,142 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+
+      {/* --- Administración de Categorías --- */}
+      <div className="mt-8 bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
+        <h3 className="text-xl font-bold text-gray-800 mb-4 text-center">
+          Administrar Categorías
+        </h3>
+
+        {catError && (
+          <div className="mb-3 bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg text-sm text-center">
+            {catError}
+          </div>
+        )}
+        {catMessage && (
+          <div className="mb-3 bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded-lg text-sm text-center">
+            {catMessage}
+          </div>
+        )}
+
+        {/* Agregar nueva categoría */}
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={newCatName}
+            onChange={(e) => setNewCatName(e.target.value)}
+            placeholder="Nombre de nueva categoría"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <button
+            onClick={() => {
+              if (!newCatName.trim()) {
+                setCatError("El nombre no puede estar vacío");
+                setCatMessage("");
+                return;
+              }
+              if (categories.includes(newCatName.trim())) {
+                setCatError("Esa categoría ya existe");
+                setCatMessage("");
+                return;
+              }
+              addCategory(newCatName.trim());
+              setNewCatName("");
+              setCatError("");
+              setCatMessage(`Categoría "${newCatName.trim()}" agregada`);
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm shadow-md hover:bg-blue-700 transition-colors"
+          >
+            + Agregar
+          </button>
+        </div>
+
+        {/* Lista de categorías */}
+        {categories.length === 0 ? (
+          <p className="text-gray-500 text-center text-sm">
+            No hay categorías. Agrega una nueva.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {categories.map((cat) => (
+              <li
+                key={cat}
+                className="flex items-center justify-between p-2 border border-gray-200 rounded-md hover:bg-gray-50"
+              >
+                {editingCat && editingCat.oldName === cat ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      type="text"
+                      value={editingCat.currentName}
+                      onChange={(e) =>
+                        setEditingCat({ ...editingCat, currentName: e.target.value })
+                      }
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                    />
+                    <button
+                      onClick={() => {
+                        const newName = editingCat.currentName.trim();
+                        if (!newName) {
+                          setCatError("El nombre no puede estar vacío");
+                          return;
+                        }
+                        if (newName !== cat && categories.includes(newName)) {
+                          setCatError("Esa categoría ya existe");
+                          return;
+                        }
+                        updateCategory(cat, newName);
+                        setEditingCat(null);
+                        setCatError("");
+                        setCatMessage(
+                          `Categoría renombrada: "${cat}" → "${newName}"`
+                        );
+                      }}
+                      className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingCat(null);
+                        setCatError("");
+                      }}
+                      className="px-3 py-1 bg-gray-300 text-gray-800 rounded text-xs hover:bg-gray-400 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="text-gray-800 text-sm font-medium">
+                      {cat}
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() =>
+                          setEditingCat({ oldName: cat, currentName: cat })
+                        }
+                        className="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 transition-colors"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => {
+                          deleteCategory(cat);
+                          setCatMessage(`Categoría "${cat}" eliminada`);
+                          setCatError("");
+                        }}
+                        className="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 };
